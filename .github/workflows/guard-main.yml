@@ -1,0 +1,45 @@
+name: Guard Main (docs-only)
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-paths:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List and validate changed paths
+        run: |
+          set -e
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+
+          echo "Diff: $base_sha..$head_sha"
+          CHANGED=$(git diff --name-only "$base_sha" "$head_sha" || true)
+
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # main にマージできるパスのホワイトリスト:
+          # - docs/**   → 各学習ノート
+          # - .github/**→ ワークフロー/テンプレートなど
+          # - README.md → 説明
+          ALLOW_REGEX='^(docs/|\.github/|README\.md$)'
+
+          BAD=$(echo "$CHANGED" | grep -vE "$ALLOW_REGEX" || true)
+
+          if [ -n "$BAD" ]; then
+            echo "❌ 非許可パスの変更があります（mainには入れません）:"
+            echo "$BAD"
+            echo
+            echo "✅ main に入れて良いのは docs/**, .github/**, README.md のみです。"
+            exit 1
+          fi
+
+          echo "✅ docs/.github/README.md のみの変更です（OK）"
