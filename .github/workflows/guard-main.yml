@@ -1,7 +1,7 @@
 name: Guard Main (docs-only, author-aware)
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [ main ]
 
 jobs:
