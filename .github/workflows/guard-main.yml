@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,22 +22,22 @@ jobs:
           head_sha="${{ github.event.pull_request.head.sha }}"
 
           echo "Diff: $base_sha..$head_sha"
-          CHANGED=$(git diff --name-only "$base_sha" "$head_sha" || true)
+          CHANGED_FILES=$(git diff --name-only "$base_sha" "$head_sha" || true)
 
-          echo "Changed files:"
-          echo "$CHANGED"
+          echo "Changed files (raw):"
+          printf '%s\n' "$CHANGED_FILES"
 
-          # main にマージできるパスのホワイトリスト:
-          # - docs/**   → 各学習ノート
-          # - .github/**→ ワークフロー/テンプレートなど
-          # - README.md → 説明
+          # 允许 main 的路径：
+          # - docs/**   → 各回のメモ
+          # - .github/**→ ワークフロー・テンプレート
+          # - README.md → ルートのREADME（不要ならこの行を消してOK）
           ALLOW_REGEX='^(docs/|\.github/|README\.md$)'
 
-          BAD=$(echo "$CHANGED" | grep -vE "$ALLOW_REGEX" || true)
+          BAD_FILES=$(printf '%s\n' "$CHANGED_FILES" | grep -vE "$ALLOW_REGEX" || true)
 
-          if [ -n "$BAD" ]; then
+          if [ -n "$BAD_FILES" ]; then
             echo "❌ 非許可パスの変更があります（mainには入れません）:"
-            echo "$BAD"
+            printf '%s\n' "$BAD_FILES"
             echo
             echo "✅ main に入れて良いのは docs/**, .github/**, README.md のみです。"
             exit 1
