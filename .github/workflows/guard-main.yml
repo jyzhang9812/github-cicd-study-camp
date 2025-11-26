@@ -1,4 +1,4 @@
-name: Guard Main (docs-only)
+name: Guard Main (docs-only, author-aware)
 
 on:
   pull_request:
@@ -9,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      docs_only: ${{ steps.check.outputs.docs_only }}
+      pattern_ok: ${{ steps.check.outputs.pattern_ok }}
 
     steps:
       - uses: actions/checkout@v4
@@ -16,8 +19,23 @@ jobs:
           fetch-depth: 0
 
       - name: List and validate changed paths
+        id: check
         run: |
           set -e
+
+          echo "PR author: $GITHUB_ACTOR"
+
+          # 主催者ID
+          ALLOWED_AUTHORS=("YOUR_ID" "H_ID")
+
+          is_allowed_author=false
+          for a in "${ALLOWED_AUTHORS[@]}"; do
+            if [ "$GITHUB_ACTOR" = "$a" ]; then
+              is_allowed_author=true
+              break
+            fi
+          done
+
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
 
@@ -27,20 +45,47 @@ jobs:
           echo "Changed files (raw):"
           printf '%s\n' "$CHANGED_FILES"
 
-          # 允许 main 的路径：
-          # - docs/**   → 各回のメモ
-          # - .github/**→ ワークフロー・テンプレート
-          # - README.md → ルートのREADME（不要ならこの行を消してOK）
-          ALLOW_REGEX='^(docs/|\.github/|README\.md$)'
+          # 主催者の場合は、main修正できる
+          if [ "$is_allowed_author" = true ]; then
+            echo "Author is in ALLOWED_AUTHORS. Skipping docs-only restriction."
+            echo "docs_only=true" >> $GITHUB_OUTPUT
+            echo "pattern_ok=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-          BAD_FILES=$(printf '%s\n' "$CHANGED_FILES" | grep -vE "$ALLOW_REGEX" || true)
+          # 参加者の場合：
+          # 1. docs/ で始まる
+          # 2. .md で終わる
+          docs_only=true
+          pattern_ok=true
 
-          if [ -n "$BAD_FILES" ]; then
-            echo "❌ 非許可パスの変更があります（mainには入れません）:"
-            printf '%s\n' "$BAD_FILES"
-            echo
-            echo "✅ main に入れて良いのは docs/**, .github/**, README.md のみです。"
+
+          # 例: docs/第03回_章タイトル/teamA_第03回.md
+          NAME_REGEX='^docs/.+/team[A-Za-z0-9]+_第[0-9]{2}回\.md$'
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            echo "Checking: $file"
+
+            if ! echo "$file" | grep -qE '^docs/'; then
+              docs_only=false
+            fi
+            if ! echo "$file" | grep -qE '\.md$'; then
+              docs_only=false
+            fi
+
+            if ! echo "$file" | grep -qE "$NAME_REGEX"; then
+              pattern_ok=false
+            fi
+          done <<< "$CHANGED_FILES"
+
+          echo "docs_only=$docs_only"   >> $GITHUB_OUTPUT
+          echo "pattern_ok=$pattern_ok" >> $GITHUB_OUTPUT
+
+          if [ "$docs_only" = false ]; then
+            echo "❌ docs/配下の .md 以外の変更が含まれています（一般参加者には禁止）"
+            echo "✅ main に入れて良いのは docs/** 内の .md ファイルのみです（主催者以外）"
             exit 1
           fi
 
-          echo "✅ docs/.github/README.md のみの変更です（OK）"
+          echo "✅ 一般参加者による変更は docs/** 内の .md のみに収まっています。"

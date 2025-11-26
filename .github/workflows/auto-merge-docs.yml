@@ -10,49 +10,80 @@ permissions:
   pull-requests: write
 
 jobs:
-  enable-automerge-if-docs-only:
+  maybe-automerge:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.base.ref == 'main'
+
     steps:
-      - name: Fetch PR files
-        id: files
+      - name: Get PR info
+        id: pr
         uses: actions/github-script@v7
         with:
           script: |
             const pr = context.payload.pull_request;
-            const files = await github.paginate(
-              github.rest.pulls.listFiles,
-              { owner: context.repo.owner, repo: context.repo.repo, pull_number: pr.number }
-            );
-            core.setOutput('files', JSON.stringify(files.map(f => f.filename)));
+            core.setOutput('author', pr.user.login);
 
-      - name: Check whitelist paths
-        id: check
+      - name: Skip if author is maintainer
+        id: maintainer-check
         run: |
-          files=$(echo '${{ steps.files.outputs.files }}' | jq -r '.[]')
-          echo "Changed files:"
-          echo "$files"
-          allow_regex='^(docs/|\.github/|README\.md$)'
-          bad=$(echo "$files" | grep -vE "$allow_regex" || true)
-          if [ -n "$bad" ]; then
-            echo "Found non-docs changes:"
-            echo "$bad"
-            echo "This PR will NOT be auto-merged."
-            echo "allowed=false" >> $GITHUB_OUTPUT
+          MAINTAINERS=("YOUR_ID" "H_ID")
+          author="${{ steps.pr.outputs.author }}"
+          echo "PR author: $author"
+
+          is_maintainer=false
+          for m in "${MAINTAINERS[@]}"; do
+            if [ "$author" = "$m" ]; then
+              is_maintainer=true
+              break
+            fi
+          done
+
+          if [ "$is_maintainer" = true ]; then
+            echo "author_is_maintainer=true" >> $GITHUB_OUTPUT
           else
-            echo "Docs-only changes OK."
-            echo "allowed=true" >> $GITHUB_OUTPUT
+            echo "author_is_maintainer=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Fetch guard-main conclusion
+        uses: actions/github-script@v7
+        id: guard
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+
+            const checks = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: pr.head.sha
+            });
+
+            const guard = checks.data.check_runs.find(
+              c => c.name === 'Guard Main (docs-only, author-aware)'
+            );
+
+            if (!guard) {
+              core.setOutput('docs_only', 'false');
+              core.setOutput('pattern_ok', 'false');
+            } else {
+              core.setOutput('docs_only', 'true');
+              core.setOutput('pattern_ok', 'true');
+            }
+
       - name: Enable auto-merge (squash)
-        if: steps.check.outputs.allowed == 'true'
+        if: >
+          steps.maintainer-check.outputs.author_is_maintainer == 'false' &&
+          steps.guard.outputs.docs_only == 'true' &&
+          steps.guard.outputs.pattern_ok == 'true'
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           merge-method: squash
 
       - name: Comment result
-        if: steps.check.outputs.allowed == 'true'
+        if: >
+          steps.maintainer-check.outputs.author_is_maintainer == 'false' &&
+          steps.guard.outputs.docs_only == 'true' &&
+          steps.guard.outputs.pattern_ok == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -61,5 +92,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: pr.number,
-              body: "✅ docs/.github/README.md のみの変更を検出しました。Auto-merge を有効化します（チェック通過後に自動マージ）。"
+              body: "✅ docs/** 内の許可された形式の .md 変更のみを検出しました。Auto-merge を有効化します。"
             });
