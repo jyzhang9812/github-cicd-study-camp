@@ -26,7 +26,7 @@ jobs:
           echo "PR author: $GITHUB_ACTOR"
 
           # 主催者ID
-          ALLOWED_AUTHORS=("YOUR_ID" "H_ID")
+          ALLOWED_AUTHORS=("jyzhang9812" "xxx")
 
           is_allowed_author=false
           for a in "${ALLOWED_AUTHORS[@]}"; do
@@ -59,22 +59,16 @@ jobs:
           docs_only=true
           pattern_ok=true
 
-          # 例: docs/第03回_章タイトル/teamA_第03回.md
-          NAME_REGEX='^docs/.+/team[A-Za-z0-9]+_第[0-9]{2}回\.md$'
+          NAME_REGEX='^"docs/.+/team[A-Za-z0-9]+_第[0-9]{2}回\.md"$'
 
-          while IFS= read -r orig; do
-            [ -z "$orig" ] && continue
-
-            file="$orig"
-            file="${file#\"}"
-            file="${file%\"}"
-
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
             echo "Checking: $file"
 
-            if ! echo "$file" | grep -qE '^docs/'; then
+            if ! echo "$file" | grep -qE '^"docs/'; then
               docs_only=false
             fi
-            if ! echo "$file" | grep -qE '\.md$'; then
+            if ! echo "$file" | grep -qE '\.md"$'; then
               docs_only=false
             fi
 
